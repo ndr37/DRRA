@@ -10,8 +10,13 @@ whatnot, and generally trusts the results. YMMV.
 
 import numpy as np
 import pandas as pd
+from scipy import integrate
+from scipy import optimize
+from scipy import signal
+from scipy import fftpack
 from scipy.optimize import leastsq
 import os
+from DRRA import constants
 from DRRA.constants import *
 
 #####################################################
@@ -237,7 +242,7 @@ def dfdB_model(theta,B,f):
 	return offset+(-2*gam**2*(2*abs(B) + Meff)*(abs(B)*gam**2*(abs(B) + Meff) + 4*(-1 + 2*alpha**2)*f**2*np.pi**2)*(abs(B)*Cz*gam**3*(abs(B) + Meff)**2 + 4*f**2*gam*(-(Cz*(abs(B) + Meff)) + alpha*Cx*(2*abs(B) + Meff))*np.pi**2) + (Cz*gam**3*(abs(B) + Meff)*(3*abs(B) + Meff) - 4*(-2*alpha*Cx + Cz)*f**2*gam*np.pi**2)*(4*alpha**2*f**2*gam**2*(2*abs(B) + Meff)**2*np.pi**2 + (abs(B)*gam**2*(abs(B) + Meff) - 4*f**2*np.pi**2)**2))/(4*alpha**2*f**2*gam**2*(2*abs(B) + Meff)**2*np.pi**2 + (abs(B)*gam**2*(abs(B) + Meff) - 4*f**2*np.pi**2)**2)**2
 
 def dlor_model(theta,B):
-	delta,A,S,B0,offset, = theta
+	delta,A,S,B0,offset = theta
 	return (delta*(A*(-(B - B0)**2 + delta**2) + 2*(-B + B0)*delta*S))/((B - B0)**2 + delta**2)**2 +offset
 
 def dlor_residual(theta, B, data):
@@ -320,6 +325,149 @@ def fitDSTFMRscan(dataframe,f,i,theta_wi):
 #													#
 #####################################################
 
+def vsumexact(x, w, center, csum):
+    """
+    Returns a numpy array the length of x which produces an ideal curve of the Oersted field induced
+    out of plane rotation of the magnetization in the MOKE device for a given width, center, and amplitude
+    """
 
+    v=[]
+    for element in x:
+        if (center-w/2)<=element<=(center+w/2):
+            v.append(csum/w*(np.log((w/2+(element-center))**2)-np.log((w/2-(element-center))**2)))
+        else:
+            v.append(0.)
+    return np.array(v)
+
+def vsumexact_offset(x, w, center, csum, offset):
+	"""
+    Returns a numpy array the length of x which produces an ideal curve of the Oersted field induced
+    out of plane rotation of the magnetization in the MOKE device for a given width, center, amplitude,
+    and potentially a dc offset
+    """
+	v=[]
+	if np.shape(x)==():
+		if (center-w/2)<=x<=(center+w/2):
+			v = csum/w*(np.log((w/2+(x-center))**2)-np.log((w/2-(x-center))**2))+offset
+		else:
+			v=0
+		return v
+	else:
+		for element in x:
+			if (center-w/2)<=element<=(center+w/2):
+				v.append(csum/w*(np.log((w/2+(element-center))**2)-np.log((w/2-(element-center))**2))+offset)
+			else:
+				v.append(0.)
+		return np.array(v)
+
+def vdifexact(x, w, center, cdif):
+	"""
+    Returns a numpy array the length of x which produces an ideal curve of the spin Hall induced
+    out of plane rotation of the magnetization in the MOKE device for a given width, center, and amplitude
+    """
+	v=[]
+	if np.shape(x) ==():
+		if (center-w/2)<=x<=(center+w/2):
+			v=cdif
+		else:
+			v=0
+		return v
+	else:
+		for element in x:
+			if (center-w/2)<=element<=(center+w/2):
+				v.append(cdif)
+			else:
+				v.append(0.)
+		return np.array(v)
+
+def vdifsmooth(x, w, center, cdif, delta,spacing=0.01):
+	exact=vdifexact(x,w,center,cdif)
+	if np.shape(x) == ():
+		gaussian = signal.gaussian(10*delta/spacing,delta/spacing)/(delta/spacing*np.sqrt(2*np.pi))
+	else:
+		gaussian = signal.gaussian(10*delta/(x.values[1]-x[0]),delta/((x.values[1]-x[0])))/(delta/(x.values[1]-x[0])*np.sqrt(2*np.pi))
+	return signal.fftconvolve(exact,gaussian,mode='same')
+
+def vdifsmooth_residual(theta,x,data):
+	w, center, cdif, delta = theta
+	temp = data - vdifsmooth(x,w,center,cdif,delta)
+	return temp
+
+def vdifsmooth_residual_scalar(theta,x,data):
+	w, center, cdif, delta = theta
+	return np.sum((data - vdifsmooth(x,w,center,cdif,delta))**2)
+
+def beamprofile(x,delta):
+	gaussian = 1/(delta*np.sqrt(2*np.pi))*np.exp(-x**2/(2*delta**2))
+	return gaussian
+
+def kernel_nint(xp,x,w,center,csum,delta):
+	convolutionkernel = vsumexact_nint(x-xp,w,center, csum)*beamprofile(xp,delta)
+	return convolutionkernel
+
+def vsumsmooth_nint(x, w, center, csum, delta):
+	convolved = []
+	for data in x:
+		tempint = integrate.quad(kernel,-np.inf,np.inf,args=(data,w,center,csum,delta),limit=1000)[0]
+		if tempint == np.inf or tempint == -np.inf:
+			print(data)
+		convolved.append(tempint)
+	return convolved
+
+def vsumsmooth(x, w, center, csum, delta):
+	exact=vsumexact(x,w,center,csum)
+	gaussian = signal.gaussian(10*delta/(x.values[1]-x[0]),delta/((x.values[1]-x[0])))/(delta/(x.values[1]-x[0])*np.sqrt(2*np.pi))
+	return signal.fftconvolve(exact,gaussian,mode='same')
+
+def vsumsmooth_offset(x, w, center, csum, delta, offset,spacing = 0.01):
+	exact=vsumexact_offset(x,w,center,csum,offset)
+	if np.shape(x)==():
+		gaussian = signal.gaussian(10*delta/spacing,delta/spacing)/(delta/spacing*np.sqrt(2*np.pi))
+	else:
+		gaussian = signal.gaussian(10*delta/(x.values[1]-x[0]),delta/((x.values[1]-x[0])))/(delta/(x.values[1]-x[0])*np.sqrt(2*np.pi))
+	return signal.fftconvolve(exact,gaussian,mode='same')
+
+def vsumsmooth_residual(theta,x,data):
+	w, center, csum, delta = theta
+	temp = data - vsumsmooth(x,w,center,csum,delta)
+	return temp
+
+def vsumsmooth_offset_residual(theta,x,data):
+	w, center, csum, delta, offset = theta
+	temp = data - vsumsmooth_offset(x,w,center,csum,delta,offset)
+	return temp
+
+
+def vsumsmooth_residual_scalar(theta,x,data):
+	w, center, csum, delta = theta
+	return np.sum((data - vsumsmooth(x,w,center,csum,delta))**2)
+
+def vsumsmooth_offset_residual_scalar(theta,x,data):
+	w, center, csum, delta, offset = theta
+	return np.sum((data - vsumsmooth_offset(x,w,center,csum,delta,offset))**2)
+
+def mokesimul_offset_residual_scalar(theta,x,datasum,datadif):
+	w, center, csum, cdif, delta, offset = theta
+	vsum_resid = datasum - vsumsmooth_offset(x,w,center,csum,delta,offset)
+	vdif_resid = datadif - vdifsmooth(x,w,center,cdif,delta)  
+	return np.sum(vsum_resid**2) + np.sum(vdif_resid**2)
+
+def sum_area(theta,x,zeroed=True):
+	"""
+	Returns the area under the curve traced out by the ideal MOKE sum curve using
+	simpsons rule.
+	"""
+	w, center, csum, delta, offset = theta
+	if zeroed:
+		offset = 0.0
+	return integrate.simps(np.abs(vsumsmooth_offset(x,w,center,csum,delta,0)),x=x)
+
+def dif_area(theta,x):
+	"""
+	Returns the area under the curve traced out by the ideal MOKE difference curve using
+	simpsons rule.
+	"""
+	w, center, csum, delta = theta
+	return integrate.simps(np.abs(vdifsmooth(x,w,center,csum,delta)),x=x)
 
     
