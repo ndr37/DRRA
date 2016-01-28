@@ -470,4 +470,7 @@ def dif_area(theta,x):
 	w, center, csum, delta = theta
 	return integrate.simps(np.abs(vdifsmooth(x,w,center,csum,delta)),x=x)
 
+def spin_Hall_prefactor(muMs, mag_thick, R_device, active_conductivity):
+	return 2*constants.echarge/constants.hbar*muMs*mag_thick*np.log(4)/(2*np.pi*(R_device*60/50)*active_conductivity)
+
     

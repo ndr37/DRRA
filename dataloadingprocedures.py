@@ -2,7 +2,9 @@
 
 This is an attempt at automating data formats common among Ralph Group Instruments.
 Currently supported are UtilSweep, UtilMOKE, PPMSsweep, and PPMS (QD) file formats
-All methods take a file of a given type and return a pandas dataframe.
+All methods take a file of a given type and return a pandas dataframe. Instancing 
+the dataloader class is meant to remove the hassle of having to append the directory
+each time.
 
 """
 
@@ -102,9 +104,24 @@ class dataloader:
 	def load_UtilMOKE(self, filename):
 		"""
 		Uses load_tab_delimited method to load all the standard instruments from a normal SHE MOKE
-		experiment. The column names are intelligent enough to not require modification during loading.
+		experiment. The output is a dataframe that contains the Mirrorline values and the sum and
+		difference as plus and dif.
 		"""
 		temp = self.load_tab_delimited(filename)
+		temp = pd.concat([temp.MirrorLine[:-1],temp.X1,temp.Field],axis=1)
+		tempplus = temp[temp['Field'].isin([temp.Field[0]])]
+		tempdif = temp[temp['Field'].isin([temp.Field[len(temp)-1]])]
+		i=0
+		dif = np.array([2]*len(tempdif),dtype='float64')
+		while i<len(tempdif):
+			dif[i]=tempdif.X1.iloc[i]-tempplus.X1.iloc[i]
+			i+=1
+		plus = np.array([2]*len(tempplus),dtype='float64')
+		i=0
+		while i<len(tempplus):
+			plus[i]=tempdif.X1.iloc[i]+tempplus.X1.iloc[i]
+			i+=1
+		temp = pd.DataFrame({'MirrorLine':tempplus.MirrorLine,'plus':plus, 'dif':dif})
 		return temp
 
 
