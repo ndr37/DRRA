@@ -10,6 +10,7 @@ each time.
 
 import numpy as np
 import pandas as pd
+import os
 from DRRA import constants
 
 
@@ -101,27 +102,102 @@ class dataloader:
 				utildict['position'] = temp[item].values
 		return pd.DataFrame(ppmsdict)
 
-	def load_UtilMOKE(self, filename):
+	def load_UtilMOKE(self, filename, channel=1):
 		"""
 		Uses load_tab_delimited method to load all the standard instruments from a normal SHE MOKE
 		experiment. The output is a dataframe that contains the Mirrorline values and the sum and
-		difference as plus and dif.
+		difference as plus and dif. 
+
+		Channel kwarg allows selection of which SR 7270 channel to load as data, X1 by default.
 		"""
 		temp = self.load_tab_delimited(filename)
-		temp = pd.concat([temp.MirrorLine[:-1],temp.X1,temp.Field],axis=1)
+		if channel == 1:
+			temp = pd.concat([temp.MirrorLine[:-1],temp.X1,temp.Field],axis=1)
+		else:
+			temp = pd.concat([temp.MirrorLine[:-1],temp.X2,temp.Field],axis=1)
 		tempplus = temp[temp['Field'].isin([temp.Field[0]])]
 		tempdif = temp[temp['Field'].isin([temp.Field[len(temp)-1]])]
 		i=0
 		dif = np.array([2]*len(tempdif),dtype='float64')
 		while i<len(tempdif):
-			dif[i]=tempdif.X1.iloc[i]-tempplus.X1.iloc[i]
+			if channel == 1:
+				dif[i]=tempdif.X1.iloc[i]-tempplus.X1.iloc[i]
+			else:
+				dif[i]=tempdif.X2.iloc[i]-tempplus.X2.iloc[i]
 			i+=1
 		plus = np.array([2]*len(tempplus),dtype='float64')
 		i=0
 		while i<len(tempplus):
-			plus[i]=tempdif.X1.iloc[i]+tempplus.X1.iloc[i]
+			if channel ==1:
+				plus[i]=tempdif.X1.iloc[i]+tempplus.X1.iloc[i]
+			else:
+				plus[i]=tempdif.X2.iloc[i]+tempplus.X2.iloc[i]
 			i+=1
 		temp = pd.DataFrame({'MirrorLine':tempplus.MirrorLine,'plus':plus, 'dif':dif})
 		return temp
+
+	def load_DC_Bias_UtilSweep_neg(self,max=False,lowerbound = 100,upperbound = 100,points_from_zero = 30):
+		"""
+		Uses load_UtilSweep method to load data from a dc biased stfmr experiment, keeping only the negative fields
+		and triming the data to a region presumably only around the resonance.
+		Returns pandas DataFrame with shortened keys for easy df.KEY access. 
+		"""
+		i=0
+		alldatadict = {}
+		for item in (os.listdir(self.wkdir)):
+			if item.split('_')[0] == 'azimuth':
+				nparray = self.load_UtilSweep(item)[self.load_UtilSweep(item).field<0]
+				curr = float(item.split('_')[9])
+				freq = float(item.split('_')[7])
+				if max:
+					negmax = nparray[:-points_from_zero].l1x.argmax()
+				if not max:
+					negmax = nparray[:-points_from_zero].l1x.argmin()
+				upper = negmax+upperbound
+				if upper>len(nparray):
+					upper = len(nparray)-1
+				lower = negmax-lowerbound
+				if lower<0:
+					lower = 0
+				nparray = nparray[lower:upper]
+				nparray = pd.DataFrame({'l1x':nparray.l1x.values*1e6,'field':nparray.field.values})
+				if not curr in alldatadict:
+					alldatadict[curr]={}
+				alldatadict[curr][freq]=nparray
+				i=i+1
+		return alldatadict
+
+	def load_DC_Bias_UtilSweep_pos(self,max=False,lowerbound = 100,upperbound = 100,points_from_zero = 30):
+		"""
+		Uses load_UtilSweep method to load data from a dc biased stfmr experiment, keeping only the positive fields
+		and triming the data to a region presumably only around the resonance.
+		Returns pandas DataFrame with shortened keys for easy df.KEY access. 
+		"""
+		i=0
+		alldatadict = {}
+		for item in (os.listdir(self.wkdir)):
+			if item.split('_')[0] == 'azimuth':
+				nparray = self.load_UtilSweep(item)[self.load_UtilSweep(item).field>0]
+				curr = float(item.split('_')[9])
+				freq = float(item.split('_')[7])
+				nparray = nparray.reset_index()
+				if max:
+					negmax = nparray[:-points_from_zero].l1x.argmax()
+				if not max:
+					negmax = nparray[:-points_from_zero].l1x.argmin()
+				upper = negmax+upperbound
+				if upper>len(nparray):
+					upper = len(nparray)-1
+				lower = negmax-lowerbound
+				if lower<0:
+					lower = 0
+				nparray = nparray[lower:upper]
+				nparray = pd.DataFrame({'l1x':nparray.l1x.values*1e6,'field':nparray.field.values})
+				if not curr in alldatadict:
+					alldatadict[curr]={}
+				alldatadict[curr][freq]=nparray
+				i=i+1
+		return alldatadict
+
 
 
