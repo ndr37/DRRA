@@ -1,0 +1,5 @@
+DRRA.egg-info/PKG-INFO
+DRRA.egg-info/SOURCES.txt
+DRRA.egg-info/dependency_links.txt
+DRRA.egg-info/requires.txt
+DRRA.egg-info/top_level.txt

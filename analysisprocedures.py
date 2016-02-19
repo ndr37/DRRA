@@ -15,9 +15,26 @@ from scipy import optimize
 from scipy import signal
 from scipy import fftpack
 from scipy.optimize import leastsq
+import matplotlib.pyplot as plt
 import os
+import emcee
 from DRRA import constants
 from DRRA.constants import *
+
+
+def emcee_starting_points(theta0,nwalkers,perturbation):
+    rand_perturb=perturbation*np.random.rand(len(theta0)*nwalkers).reshape((nwalkers,len(theta0)))
+    thetas =[]
+    i=0
+    while i<nwalkers:
+        thetas.append(theta0)
+        i+=1
+    return rand_perturb*np.array(thetas)
+
+def emcee_starting_points_normal(theta0,nwalkers,perturbation):
+    return [theta0 + perturbation*np.random.randn(len(theta0)) for i in range(nwalkers)]
+
+
 
 #####################################################
 # STFMR Methods										#
@@ -283,6 +300,71 @@ def directory_auto_fit(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthickness,_bar
 	print()
 	return sampledict
 
+def stfmr_residual_lnprob_local(theta, B, f, data,priors_window = [[1,1],[2,2],[300,300],[300,300],[5,5]]):
+    theta_fraction=priors_window
+    i=0
+    while i <len(theta):
+        if abs(theta[i])-abs(theta_fraction[i][0])<abs(theta[i])<abs(theta[i])+abs(theta_fraction[i][1]):
+            return -np.inf
+        i+=1
+    return -1/2*np.sum((data - model(theta, B, f))**2)
+
+
+class stfmr_mcmc():
+    def __init__(self, nwalkers, p0_spread, theta, B, f, data, 
+                 priors_window = [[1,1],[2,2],[300,300],[300,300],[5,5]]):
+        self.theta = theta
+        self.p0 = emcee_starting_points_normal(self.theta, nwalkers, p0_spread)
+        self.sampler = emcee.EnsembleSampler(nwalkers, len(self.theta),stfmr_residual_lnprob_local,
+                                            args=(B,f,data))
+    def prepare(self, burn_in=100):
+        self.pos, self.prob, self.state = self.sampler.run_mcmc(self.p0, burn_in)
+        self.sampler.reset()
+    
+    def run(self,nsteps):
+        self.sampler.run_mcmc(self.pos,nsteps)
+    
+    def plot(self):
+        for i in range(len(self.theta)):
+            plt.figure()
+            plt.hist(self.sampler.flatchain[:,i], 500, histtype="stepfilled")
+            plt.title("Dimension {0:d}".format(i))
+        plt.show()
+        
+    def return_parameters(self):
+        array = []
+        i=0
+        while i < np.shape(self.sampler.flatchain)[1]:
+            temp= np.percentile(self.sampler.flatchain[:,i],[16,50,84])
+            array.append([temp[1],temp[1]-temp[0],temp[2]-temp[1]])
+            i+=1
+        return np.array(array)
+        
+    def print_parameters(self):
+        i=0
+        while i < np.shape(self.sampler.flatchain)[1]:
+            temp= np.percentile(self.sampler.flatchain[:,i],[16,50,84])
+            print((temp[1],temp[1]-temp[0],temp[2]-temp[1]))
+            i+=1
+            
+    def generate_parameters(self):
+        true = []
+        error = []
+        array = []
+        i=0
+        while i < np.shape(self.sampler.flatchain)[1]:
+            temp= np.percentile(self.sampler.flatchain[:,i],[16,50,84])
+            array.append([temp[1],temp[1]-temp[0],temp[2]-temp[1]])
+            i+=1
+        self.temp = np.array(array)
+        for element in self.temp:
+            true.append(element[0])
+            error.append((element[1]+element[2])/2)
+        self.true=np.array(true)
+        self.true_err = np.array(error)
+
+
+
 #####################################################
 # Field mod DSTFMR Methods							#
 #													#
@@ -430,6 +512,135 @@ def fitDSTFMRscan(dataframe,f,i,theta_wi):
 	return (np.array([alpha_pos,alpha_neg,Meff_pos,Meff_neg,hdcpos,hdcneg,kpos,kneg,cxeven,cxodd,czeven,czodd]),lsqpos,lsqneg)   
 
 
+
+def parabola_ln_prob(theta, x, y,priors_window = [[1,1],[2,2],[11,11]]):
+    theta_fraction=priors_window
+    i=0
+    while i <len(theta):
+        if abs(theta[i])-abs(theta_fraction[i][0])<abs(theta[i])<abs(theta[i])+abs(theta_fraction[i][1]):
+            return -np.inf
+        i+=1
+    return -1/2*np.sum((y-(theta[0]*x**2+theta[1]*x+theta[2]))**2)
+
+class parabola_mcmc():
+    def __init__(self, nwalkers, p0_spread, theta, x,y):
+        self.theta = theta
+        self.p0 = emcee_starting_points_normal(self.theta, nwalkers, p0_spread)
+        self.sampler = emcee.EnsembleSampler(nwalkers, len(self.theta),parabola_ln_prob,
+                                            args=(x,y))
+    def prepare(self, burn_in=100):
+        self.pos, self.prob, self.state = self.sampler.run_mcmc(self.p0, burn_in)
+        self.sampler.reset()
+    
+    def run(self,nsteps):
+        self.sampler.run_mcmc(self.pos,nsteps)
+    
+    def plot(self):
+        for i in range(len(self.theta)):
+            plt.figure()
+            plt.hist(self.sampler.flatchain[:,i], 500, histtype="stepfilled")
+            plt.title("Dimension {0:d}".format(i))
+        plt.show()
+        
+    def return_parameters(self):
+        array = []
+        i=0
+        while i < np.shape(self.sampler.flatchain)[1]:
+            temp= np.percentile(self.sampler.flatchain[:,i],[16,50,84])
+            array.append([temp[1],temp[1]-temp[0],temp[2]-temp[1]])
+            i+=1
+        return np.array(array)
+        
+    def print_parameters(self):
+        i=0
+        while i < np.shape(self.sampler.flatchain)[1]:
+            temp= np.percentile(self.sampler.flatchain[:,i],[16,50,84])
+            print((temp[1],temp[1]-temp[0],temp[2]-temp[1]))
+            i+=1
+            
+    def generate_parameters(self):
+        true = []
+        error = []
+        array = []
+        i=0
+        while i < np.shape(self.sampler.flatchain)[1]:
+            temp= np.percentile(self.sampler.flatchain[:,i],[16,50,84])
+            array.append([temp[1],temp[1]-temp[0],temp[2]-temp[1]])
+            i+=1
+        self.temp = np.array(array)
+        for element in self.temp:
+            true.append(element[0])
+            error.append((element[1]+element[2])/2)
+        self.true=np.array(true)
+        self.true_err = np.array(error)
+
+
+
+def dcstfmr_residual_lnprob_local(theta, B, data,priors_window = [[1,1],[1,1],[1,1],[10,10],[1,1]]):
+    theta_fraction=priors_window
+    i=0
+    while i <len(theta):
+        if abs(theta[i])-abs(theta_fraction[i][0])<abs(theta[i])<abs(theta[i])+abs(theta_fraction[i][1]):
+            return -np.inf
+        i+=1
+    return -1/2*np.sum((data - ap.dlor_model(theta, B))**2)
+
+class dcstfmr_mcmc():
+    def __init__(self, nwalkers, p0_spread, theta, B, data, 
+                 priors_window = [[1,1],[2,2],[300,300],[300,300],[5,5]]):
+        self.theta = theta
+        self.p0 = emcee_starting_points_normal(self.theta, nwalkers, p0_spread)
+        self.sampler = emcee.EnsembleSampler(nwalkers, len(self.theta),dcstfmr_residual_lnprob_local,
+                                            args=(B,data))
+    def prepare(self, burn_in=100):
+        self.pos, self.prob, self.state = self.sampler.run_mcmc(self.p0, burn_in)
+        self.sampler.reset()
+    
+    def run(self,nsteps):
+        self.sampler.run_mcmc(self.pos,nsteps)
+    
+    def plot(self):
+        for i in range(len(self.theta)):
+            plt.figure()
+            plt.hist(self.sampler.flatchain[:,i], 500, histtype="stepfilled")
+            plt.title("Dimension {0:d}".format(i))
+        plt.show()
+        
+    def return_parameters(self):
+        array = []
+        i=0
+        while i < np.shape(self.sampler.flatchain)[1]:
+            temp= np.percentile(self.sampler.flatchain[:,i],[16,50,84])
+            array.append([temp[1],temp[1]-temp[0],temp[2]-temp[1]])
+            i+=1
+        return np.array(array)
+        
+    def print_parameters(self):
+        i=0
+        while i < np.shape(self.sampler.flatchain)[1]:
+            temp= np.percentile(self.sampler.flatchain[:,i],[16,50,84])
+            print((temp[1],temp[1]-temp[0],temp[2]-temp[1]))
+            i+=1
+            
+    def generate_parameters(self):
+        true = []
+        error = []
+        array = []
+        i=0
+        while i < np.shape(self.sampler.flatchain)[1]:
+            temp= np.percentile(self.sampler.flatchain[:,i],[16,50,84])
+            array.append([temp[1],temp[1]-temp[0],temp[2]-temp[1]])
+            i+=1
+        self.temp = np.array(array)
+        for element in self.temp:
+            true.append(element[0])
+            error.append((element[1]+element[2])/2)
+        self.true=np.array(true)
+        self.true_err = np.array(error)
+        
+    
+        
+        
    
 #####################################################
 # MOKE Methods a la Xin Fan/A. Mellnik				#
