@@ -122,7 +122,7 @@ def STFMR_analyze(fit_data,Psource,s21,s11,fieldangle,xfac,drdth,mag_thick,bar_w
 	thetaOe = echarge*mu0*Meff/mu0*mag_thick*active_thick/hbar
 	scale_factor=(4*echarge*Meff/mu0*mag_thick*bar_width*active_thick)/(
 		gam*hbar*np.cos(fieldangle*np.pi/180)*Irf(Psource,s21,s11)**2*xfac*drdth)*(
-		1e-6) *np.sqrt(2) * 2  #uV to V, sqrt(2) to go from lockin rms to amplitude
+		1e-6) *np.sqrt(2) * 2  #uV to V, sqrt(2) to go from lockin rms to amplitude, 2 to account for wierdness of AM mod with lockin
 
 	thetaxeven = -Cxeven*scale_factor
 	thetaxodd = -Cxodd*scale_factor
@@ -219,6 +219,29 @@ def fitSTFMRscan(dataframe,f,theta):
 	czeven =  (poptpos[3]+poptneg[3])/2
 	return (np.array([alpha_mean,Meff_mean,cxodd,cxeven,czodd,czeven]),lsqpos,lsqneg)
 
+
+def fitSTFMRscan_lu(dataframe,f,theta):
+	positive=dataframe[len(dataframe)//2:len(dataframe)//4*3]
+	negative=dataframe[:len(dataframe)//4]
+	#negative = negative[:-200]
+
+	lsqpos = leastsq(stfmr_residual, theta[:-1], 
+					args=(positive.Field, f, positive.X), maxfev=10000,
+					full_output = 1, )
+	lsqneg = leastsq(stfmr_residual, theta[:-1], 
+					args=(negative.Field, f, negative.X), maxfev=10000,
+					full_output = 1, )
+	poptpos, coptpos, _,_,_ =lsqpos
+	poptneg,coptneg,_,_,_ = lsqneg
+	alpha_mean = (poptpos[0]+poptneg[0])/2
+	Meff_mean = (poptpos[1]+poptneg[1])/2
+
+	cxodd = (poptpos[2]-poptneg[2])/2
+	cxeven = (poptpos[2]+poptneg[2])/2
+	czodd = (poptpos[3]-poptneg[3])/2
+	czeven =  (poptpos[3]+poptneg[3])/2
+	return (np.array([alpha_mean,Meff_mean,cxodd,cxeven,czodd,czeven]),lsqpos,lsqneg)
+
 def directory_auto_fit_fieldwrong(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthickness,_barwidth,_activethickness):
 	"""
 	Fits a whole director provided you took s11 data and RF scans using Utilsweep and Daedalus in the
@@ -258,6 +281,7 @@ def directory_auto_fit_fieldwrong(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthi
 		i=i+1
 	print()
 	return sampledict
+
 
 def directory_auto_fit(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthickness,_barwidth,_activethickness,force_45=False):
 	"""
@@ -299,6 +323,51 @@ def directory_auto_fit(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthickness,_bar
 		i=i+1
 	print()
 	return sampledict
+
+
+def directory_auto_fit_lu(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthickness,_barwidth,_activethickness,force_45=False):
+	"""
+	Fits a whole director provided you took s11 data and RF scans using Utilsweep and Daedalus in the
+	standard way.
+	"""
+
+	_tfdir=_tf_dir+'/'+ _sample_dir
+	_tflist=os.listdir(_tfdir)
+	if _tflist[0] == '.DS_Store':
+		_tflist=_tflist[1:]
+
+
+	dfamr=pd.read_csv(_tfdir+'/'+_tflist[0],sep='\t')
+	dfamr=pd.DataFrame({'Angles':dfamr.Azimuthnominal,'R':dfamr.Resistance})
+	amrval=fitamr(dfamr,amr_guess(dfamr))[0][0]
+	print('AMR done')
+
+	dftfs11=pd.read_csv(_tfdir+'/'+_tflist[len(_tflist)-1],sep='\t')
+	dftfs11=pd.DataFrame({'F':dftfs11['Frequency (Hz)']*1e-9,'s11':dftfs11['Trace Value']})
+	print('S11 loaded')
+
+	sampledict={}
+	i=0
+	for item in _tflist[1:len(_tflist)-1]:
+		angle = float(item.split('_')[1])
+		if force_45:
+			angle = 45
+		power = float(item.split('_')[5])
+		if abs(power)>30:
+			power = 0
+		freq = float(item.split('_')[7])
+		dftfcurrent=pd.read_csv(_tfdir+'/'+item,sep='\t')
+		dftfcurrent=pd.DataFrame({'Field':dftfcurrent['FieldNominal'].values*2,'X':dftfcurrent.LockinOnex.values*1e6})
+		fitdata=fitSTFMRscan_lu(dftfcurrent,freq,thetaguess(dftfcurrent,freq))
+		stfmr=STFMR_analyze(fitdata,power,sparam_from_file(df_s21,freq),sparam_from_file(dftfs11,freq),angle,_xfactor,amrval,_magnetthickness,_barwidth,_activethickness)
+		sampledict.update({freq:(angle,power,freq,fitdata,dftfcurrent,stfmr,amrval,zrf(sparam_from_file(dftfs11,freq)))})
+		print(freq, end = '\r')
+		i=i+1
+	print()
+	return sampledict
+
+
+
 
 def stfmr_residual_lnprob_local(theta, B, f, data,priors_window = [[1,1],[2,2],[300,300],[300,300],[5,5]]):
     theta_fraction=priors_window
@@ -779,7 +848,25 @@ def mokesimul_offset_residual_scalar(theta,x,datasum,datadif):
 	vdif_resid = datadif - vdifsmooth(x,w,center,cdif,delta)  
 	return np.sum(vsum_resid**2) + np.sum(vdif_resid**2)
 
+def mokesimul_residual_scalar(theta,x,datasum,datadif):
+	w, center, csum, cdif, delta = theta
+	vsum_resid = datasum - vsumsmooth(x,w,center,csum,delta)
+	vdif_resid = datadif - vdifsmooth(x,w,center,cdif,delta)  
+	return np.sum(vsum_resid**2) + np.sum(vdif_resid**2)
+
 def fit_moke_simul_bruteforce(thetarange,x,datasum,datadif):
+	"""
+	Fit both plus and dif traces simultaneously using a brute force algorithm
+	to ensure global minimum is probably found.
+	"""
+	#sometimes throws an operand broadcast error. Decreasing range on one parameter
+	#seemed to fix it
+	fitdata = diffit=optimize.differential_evolution(mokesimul_residual_scalar,
+		thetarange,
+		args=(x, datasum, datadif),)
+	return fitdata
+
+def fit_moke_simul_bruteforce_offset(thetarange,x,datasum,datadif):
 	"""
 	Fit both plus and dif traces simultaneously using a brute force algorithm
 	to ensure global minimum is probably found.
@@ -791,7 +878,16 @@ def fit_moke_simul_bruteforce(thetarange,x,datasum,datadif):
 		args=(x, datasum, datadif),)
 	return fitdata
 
-def sum_area(theta,x,zeroed=True):
+def sum_area(theta,x):
+	"""
+	Returns the area under the curve traced out by the ideal MOKE sum curve using
+	simpsons rule.
+	"""
+	w, center, csum, delta = theta
+	return integrate.simps(np.abs(vsumsmooth(x,w,center,csum,delta)),x=x)
+
+
+def sum_area_offset(theta,x,zeroed=True):
 	"""
 	Returns the area under the curve traced out by the ideal MOKE sum curve using
 	simpsons rule.

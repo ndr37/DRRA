@@ -11,6 +11,7 @@ each time.
 import numpy as np
 import pandas as pd
 import os
+import matplotlib.pyplot as plt
 from DRRA import constants
 
 
@@ -102,7 +103,7 @@ class dataloader:
 				utildict['position'] = temp[item].values
 		return pd.DataFrame(ppmsdict)
 
-	def load_UtilMOKE(self, filename, channel=1):
+	def load_UtilMOKE(self, filename, channel=1,shift=0):
 		"""
 		Uses load_tab_delimited method to load all the standard instruments from a normal SHE MOKE
 		experiment. The output is a dataframe that contains the Mirrorline values and the sum and
@@ -110,11 +111,38 @@ class dataloader:
 
 		Channel kwarg allows selection of which SR 7270 channel to load as data, X1 by default.
 		"""
-		temp = self.load_tab_delimited(filename)
+		moketemp = self.load_tab_delimited(filename)
+		i=0
+		templine=[]
+		tempx1=[]
+		tempx2=[]
+		tempdc = []
+		while i<len(moketemp.DC_volts):
+			if i<len(moketemp.DC_volts)//2:
+				templine.append(moketemp.MirrorLine.iloc[i])
+				tempx1.append(moketemp.X1.iloc[i])
+				tempx2.append(moketemp.X2.iloc[i])
+				tempdc.append(moketemp.DC_volts.iloc[i])
+			if i>=len(moketemp.DC_volts)//2:
+				if not (i-shift)>=len(moketemp.DC_volts)//2:
+					templine.append(moketemp.MirrorLine.iloc[i])
+					tempx1.append(moketemp.X1.iloc[i])
+					tempx2.append(moketemp.X2.iloc[i])
+					tempdc.append(moketemp.DC_volts.iloc[i])
+				else:
+					templine.append(moketemp.MirrorLine.iloc[i-shift])
+					tempx1.append(moketemp.X1.iloc[i-shift])
+					tempx2.append(moketemp.X2.iloc[i-shift])
+					tempdc.append(moketemp.DC_volts.iloc[i-shift])
+			i+=1
+		plt.plot(templine,moketemp.DC_volts)
+		plt.show()
+		
+		temp = pd.DataFrame({'MirrorLine':templine,'X1':tempx1,'X2':tempx2,'Field':moketemp.Field.values,'DC':tempdc})
 		if channel == 1:
-			temp = pd.concat([temp.MirrorLine[:-1],temp.X1,temp.Field],axis=1)
+			temp = pd.concat([temp.MirrorLine[:-1],temp.X1,temp.Field,temp.DC],axis=1)
 		else:
-			temp = pd.concat([temp.MirrorLine[:-1],temp.X2,temp.Field],axis=1)
+			temp = pd.concat([temp.MirrorLine[:-1],temp.X2,temp.Field,temp.DC],axis=1)
 		tempplus = temp[temp['Field'].isin([temp.Field[0]])]
 		tempdif = temp[temp['Field'].isin([temp.Field[len(temp)-1]])]
 		i=0
@@ -133,7 +161,7 @@ class dataloader:
 			else:
 				plus[i]=tempdif.X2.iloc[i]+tempplus.X2.iloc[i]
 			i+=1
-		temp = pd.DataFrame({'MirrorLine':tempplus.MirrorLine,'plus':plus, 'dif':dif})
+		temp = pd.DataFrame({'MirrorLine':tempplus.MirrorLine,'plus':plus, 'dif':dif,'DC':tempplus.DC.values})
 		return temp
 
 	def load_DC_Bias_UtilSweep_neg(self,max=False,lowerbound = 100,upperbound = 100,points_from_zero = 30):
