@@ -15,6 +15,7 @@ from scipy import optimize
 from scipy import signal
 from scipy import fftpack
 from scipy.optimize import leastsq
+from scipy import stats
 import matplotlib.pyplot as plt
 import os
 import emcee
@@ -319,6 +320,44 @@ def directory_auto_fit(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthickness,_bar
 		fitdata=fitSTFMRscan(dftfcurrent,freq,thetaguess(dftfcurrent,freq))
 		stfmr=STFMR_analyze(fitdata,power,sparam_from_file(df_s21,freq),sparam_from_file(dftfs11,freq),angle,_xfactor,amrval,_magnetthickness,_barwidth,_activethickness)
 		sampledict.update({freq:(angle,power,freq,fitdata,dftfcurrent,stfmr,amrval,zrf(sparam_from_file(dftfs11,freq)))})
+		print(freq, end = '\r')
+		i=i+1
+	print()
+	return sampledict
+
+
+def directory_auto_fit_nos11(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthickness,_barwidth,_activethickness,resistance,force_45=False):
+	"""
+	Fits a whole director provided you took s11 data and RF scans using Utilsweep and Daedalus in the
+	standard way.
+	"""
+
+	_tfdir=_tf_dir+'/'+ _sample_dir
+	_tflist=os.listdir(_tfdir)
+	if _tflist[0] == '.DS_Store':
+		_tflist=_tflist[1:]
+
+
+	dfamr=pd.read_csv(_tfdir+'/'+_tflist[0],sep='\t')
+	dfamr=pd.DataFrame({'Angles':dfamr.Azimuthnominal,'R':dfamr.Resistance})
+	amrval=fitamr(dfamr,amr_guess(dfamr))[0][0]
+	print('AMR done')
+
+	sampledict={}
+	i=0
+	for item in _tflist[1:len(_tflist)-1]:
+		angle = float(item.split('_')[1])
+		if force_45:
+			angle = 45
+		power = float(item.split('_')[5])
+		if abs(power)>30:
+			power = 0
+		freq = float(item.split('_')[7])
+		dftfcurrent=pd.read_csv(_tfdir+'/'+item,sep='\t')
+		dftfcurrent=pd.DataFrame({'Field':dftfcurrent['Field(nominal)'].values,'X':dftfcurrent.LockinOnex.values*1e6})
+		fitdata=fitSTFMRscan(dftfcurrent,freq,thetaguess(dftfcurrent,freq))
+		stfmr=STFMR_analyze(fitdata,power,sparam_from_file(df_s21,freq),s11fromr(resistance),angle,_xfactor,amrval,_magnetthickness,_barwidth,_activethickness)
+		sampledict.update({freq:(angle,power,freq,fitdata,dftfcurrent,stfmr,amrval,s11fromr(resistance))})
 		print(freq, end = '\r')
 		i=i+1
 	print()
@@ -907,5 +946,35 @@ def dif_area(theta,x):
 
 def spin_Hall_prefactor(muMs, mag_thick, R_device, active_conductivity):
 	return 2*constants.echarge/constants.hbar*muMs*mag_thick*np.log(4)/(2*np.pi*(R_device*60/50)*active_conductivity)
+
+
+#####################################################
+# VSM Methods 										#
+#													#
+#													#
+#													#
+#													#
+#													#
+#													#
+#####################################################
+
+
+def VSM_fitlimits(VSMdf,limit=50,verbose=False):
+	VSMdf_fit=VSMdf[:limit]
+	fit=stats.linregress(VSMdf_fit.B, y=VSMdf_fit.M)
+	if verbose:
+		print(fit)
+		print(fit[0])
+		print(fit[1])
+	df = pd.DataFrame({'B':VSMdf.B,'M':(VSMdf.M-fit[0]*VSMdf.B)})
+	return df
+
+def VSM_analyze(VSMdf,limitval,area,thickness):
+	df=VSM_fitlimits(VSMdf,limit=limitval,verbose=False)
+	plt.plot(df.B,df.M)
+	plt.show()
+	Ms=df[:limitval].M.mean()/(area*thickness)
+	#Multiply by mu0 to get from emu/cc (a.k.a A/m) to Tesla
+	return Ms*4*np.pi*1e-4 
 
     
