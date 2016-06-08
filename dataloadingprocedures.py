@@ -26,9 +26,9 @@ class dataloader:
 
 
 
-	def load_tab_delimited(self, filename):
+	def load_tab_delimited(self, filename,header='infer',names=None):
 		
-		temp = pd.read_csv(self.wkdir + filename, sep = '\t')
+		temp = pd.read_csv(self.wkdir + filename, sep = '\t',header=header, names=None)
 		
 		return temp
 

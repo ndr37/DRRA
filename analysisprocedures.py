@@ -110,7 +110,7 @@ def thetaguess(dataframe,f,alphaguess=0.01,Meffguess=1,sigmaguess=0.1):
 	return np.array([alphaguess,Meffguess,cxguess,czguess,offsetguess,sigmaguess])
 
 
-def STFMR_analyze(fit_data,Psource,s21,s11,fieldangle,xfac,drdth,mag_thick,bar_width,active_thick):
+def STFMR_analyze(fit_data,Psource,s21,s11,fieldangle,xfac,drdth,mag_thick,bar_width,active_thick,Ms=None):
 	
 	"""
 	input:(fit_data,Psource,s21,s11,fieldangle,xfac,drdth,mag_thick,bar_width,active_thick)
@@ -120,6 +120,8 @@ def STFMR_analyze(fit_data,Psource,s21,s11,fieldangle,xfac,drdth,mag_thick,bar_w
 
 	"""
 	alpha,Meff,Cxeven,Cxodd,Czeven,Czodd = fit_data[0]
+	if Ms is not None:
+		Meff = Ms
 	thetaOe = echarge*mu0*Meff/mu0*mag_thick*active_thick/hbar
 	scale_factor=(4*echarge*Meff/mu0*mag_thick*bar_width*active_thick)/(
 		gam*hbar*np.cos(fieldangle*np.pi/180)*Irf(Psource,s21,s11)**2*xfac*drdth)*(
@@ -284,7 +286,7 @@ def directory_auto_fit_fieldwrong(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthi
 	return sampledict
 
 
-def directory_auto_fit(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthickness,_barwidth,_activethickness,force_45=False):
+def directory_auto_fit(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthickness,_barwidth,_activethickness,force_45=False,Meffguess=1,Ms=None):
 	"""
 	Fits a whole director provided you took s11 data and RF scans using Utilsweep and Daedalus in the
 	standard way.
@@ -317,8 +319,8 @@ def directory_auto_fit(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthickness,_bar
 		freq = float(item.split('_')[7])
 		dftfcurrent=pd.read_csv(_tfdir+'/'+item,sep='\t')
 		dftfcurrent=pd.DataFrame({'Field':dftfcurrent['Field(nominal)'].values,'X':dftfcurrent.LockinOnex.values*1e6})
-		fitdata=fitSTFMRscan(dftfcurrent,freq,thetaguess(dftfcurrent,freq))
-		stfmr=STFMR_analyze(fitdata,power,sparam_from_file(df_s21,freq),sparam_from_file(dftfs11,freq),angle,_xfactor,amrval,_magnetthickness,_barwidth,_activethickness)
+		fitdata=fitSTFMRscan(dftfcurrent,freq,thetaguess(dftfcurrent,freq,Meffguess=Meffguess))
+		stfmr=STFMR_analyze(fitdata,power,sparam_from_file(df_s21,freq),sparam_from_file(dftfs11,freq),angle,_xfactor,amrval,_magnetthickness,_barwidth,_activethickness,Ms=Ms)
 		sampledict.update({freq:(angle,power,freq,fitdata,dftfcurrent,stfmr,amrval,zrf(sparam_from_file(dftfs11,freq)))})
 		print(freq, end = '\r')
 		i=i+1
@@ -326,7 +328,7 @@ def directory_auto_fit(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthickness,_bar
 	return sampledict
 
 
-def directory_auto_fit_nos11(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthickness,_barwidth,_activethickness,resistance,force_45=False):
+def directory_auto_fit_nos11(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthickness,_barwidth,_activethickness,resistance,force_45=False,Meffguess=1,Ms=None):
 	"""
 	Fits a whole director provided you took s11 data and RF scans using Utilsweep and Daedalus in the
 	standard way.
@@ -345,7 +347,7 @@ def directory_auto_fit_nos11(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthicknes
 
 	sampledict={}
 	i=0
-	for item in _tflist[1:len(_tflist)-1]:
+	for item in _tflist[1:len(_tflist)]:
 		angle = float(item.split('_')[1])
 		if force_45:
 			angle = 45
@@ -355,8 +357,8 @@ def directory_auto_fit_nos11(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthicknes
 		freq = float(item.split('_')[7])
 		dftfcurrent=pd.read_csv(_tfdir+'/'+item,sep='\t')
 		dftfcurrent=pd.DataFrame({'Field':dftfcurrent['Field(nominal)'].values,'X':dftfcurrent.LockinOnex.values*1e6})
-		fitdata=fitSTFMRscan(dftfcurrent,freq,thetaguess(dftfcurrent,freq))
-		stfmr=STFMR_analyze(fitdata,power,sparam_from_file(df_s21,freq),s11fromr(resistance),angle,_xfactor,amrval,_magnetthickness,_barwidth,_activethickness)
+		fitdata=fitSTFMRscan(dftfcurrent,freq,thetaguess(dftfcurrent,freq,Meffguess=Meffguess))
+		stfmr=STFMR_analyze(fitdata,power,sparam_from_file(df_s21,freq),s11fromr(resistance),angle,_xfactor,amrval,_magnetthickness,_barwidth,_activethickness,Ms=Ms)
 		sampledict.update({freq:(angle,power,freq,fitdata,dftfcurrent,stfmr,amrval,s11fromr(resistance))})
 		print(freq, end = '\r')
 		i=i+1

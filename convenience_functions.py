@@ -83,6 +83,10 @@ def angle_summary(autofit, f,error=0,fdep=False, offset=0):
 		array.append(autofit[f][5][5])
 	print('SHE S/A mean =%f' %np.array(array).mean())
 	array=[]
+	for f in autofit:
+		array.append(autofit[f][5][2])
+	print('ThetazOdd mean =%f' %np.array(array).mean())
+	array=[]
 	freqs = []
 	for f in sorted(autofit.keys()):
 		array.append(autofit[f][5][0])
