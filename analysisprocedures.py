@@ -51,7 +51,7 @@ def s11fromr(rdc):
 	"""
 	Calculates the S11 parameter based on supplied impedance
 	"""
-	s11 = 20*np.log10((rdc-50)/(rdc+50))
+	s11 = 20*np.log10(abs((rdc-50))/(rdc+50))
 	return s11
 
 def gamma(s11):
@@ -338,6 +338,7 @@ def directory_auto_fit_nos11(_tf_dir,_sample_dir,df_s21,_xfactor,_magnetthicknes
 	_tflist=os.listdir(_tfdir)
 	if _tflist[0] == '.DS_Store':
 		_tflist=_tflist[1:]
+	print(_tflist)
 
 
 	dfamr=pd.read_csv(_tfdir+'/'+_tflist[0],sep='\t')
